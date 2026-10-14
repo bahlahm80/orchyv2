@@ -31,7 +31,7 @@ Create a key in [Google AI Studio](https://aistudio.google.com/apikey). Resume t
 ## Run locally
 
 ```bash
-cd orchyv2
+cd jobhelper
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

@@ -94,7 +94,6 @@ class ApplicationWorker:
             await session.commit()
             await session.refresh(app)
 
-
             if job and job.url:
                 try:
                     asyncio.create_task(self._rub_playwright_apply(app.id, job.url))
