@@ -5,10 +5,10 @@ import webbrowser
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from orchy.config import settings
-from orchy.db import SessionLocal
-from orchy.models import Application, Job
-from orchy.store import (
+from jobhelper.config import settings
+from jobhelper.db import SessionLocal
+from jobhelper.models import Application, Job
+from jobhelper.store import (
     application_for_job,
     create_pending,
     in_progress_count,

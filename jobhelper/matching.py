@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from orchy.llm import LLMError, generate_json
+from jobhelper.llm import LLMError, generate_json
 
 STOPWORDS = {
     "and",

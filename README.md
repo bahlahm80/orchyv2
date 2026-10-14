@@ -38,7 +38,7 @@ pip install -r requirements.txt
 cp .env.example .env
 # paste GEMINI_API_KEY into .env
 # replace data/resume.md with your resume
-python -m orchy.main
+python -m jobhelper.main
 ```
 
 Open `http://127.0.0.1:8000`.
@@ -58,7 +58,7 @@ Useful env:
 Stdio server for other local agents:
 
 ```bash
-python -m orchy.mcp_server
+python -m jobhelper.mcp_server
 ```
 
 Cursor example (`mcp.json`):
@@ -68,7 +68,7 @@ Cursor example (`mcp.json`):
   "mcpServers": {
     "orchy-jobs": {
       "command": "python",
-      "args": ["-m", "orchy.mcp_server"],
+      "args": ["-m", "jobhelper.mcp_server"],
       "cwd": "."
     }
   }

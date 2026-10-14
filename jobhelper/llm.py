@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from orchy.config import settings
+from jobhelper.config import settings
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 

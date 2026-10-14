@@ -5,10 +5,10 @@ from __future__ import annotations
 from mcp.server.mcpserver import MCPServer
 from sqlalchemy import select
 
-from orchy.agents.application_worker import ApplicationWorker
-from orchy.db import SessionLocal, init_db
-from orchy.models import Application
-from orchy.store import dashboard_rows, in_progress_count, recent_events
+from jobhelper.agents.application_worker import ApplicationWorker
+from jobhelper.db import SessionLocal, init_db
+from jobhelper.models import Application
+from jobhelper.store import dashboard_rows, in_progress_count, recent_events
 
 mcp = MCPServer("orchy-jobs")
 worker = ApplicationWorker()

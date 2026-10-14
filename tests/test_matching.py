@@ -1,4 +1,4 @@
-from orchy.matching import heuristic_score
+from jobhelper.matching import heuristic_score
 
 
 def test_engineering_role_scores_higher_than_sales():

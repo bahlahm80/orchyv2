@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     manager_tick_seconds: int = 15
     host: str = "127.0.0.1"
     port: int = 8000
-    database_url: str = "sqlite+aiosqlite:///./data/orchy.db"
+    database_url: str = "sqlite+aiosqlite:///./data/jobhelper.db"
 
 
 settings = Settings()

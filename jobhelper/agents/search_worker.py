@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from orchy.config import load_resume, settings
-from orchy.db import SessionLocal
-from orchy.matching import score_job
-from orchy.sources.linkedin import LinkedInJobSource
-from orchy.sources.sample import SampleJobSource
-from orchy.store import log_event, upsert_job
+from jobhelper.config import load_resume, settings
+from jobhelper.db import SessionLocal
+from jobhelper.matching import score_job
+from jobhelper.sources.linkedin import LinkedInJobSource
+from jobhelper.sources.sample import SampleJobSource
+from jobhelper.store import log_event, upsert_job
 
 
 class SearchWorker:

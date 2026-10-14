@@ -5,14 +5,14 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from orchy.models import (
+from jobhelper.models import (
     IN_PROGRESS_STATUSES,
     AgentEvent,
     Application,
     ChatMessage,
     Job,
 )
-from orchy.sources.base import JobPosting
+from jobhelper.sources.base import JobPosting
 
 
 async def log_event(session: AsyncSession, actor: str, message: str) -> AgentEvent:

@@ -1,4 +1,4 @@
-from orchy.sources.base import JobPosting
+from jobhelper.sources.base import JobPosting
 
 
 class SampleJobSource:

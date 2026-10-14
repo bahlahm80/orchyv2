@@ -5,13 +5,13 @@ from time import monotonic
 
 from sqlalchemy import select
 
-from orchy.agents.application_worker import ApplicationWorker
-from orchy.agents.search_worker import SearchWorker
-from orchy.config import load_resume, settings
-from orchy.db import SessionLocal
-from orchy.llm import LLMError, generate
-from orchy.models import Application, ChatMessage, Job
-from orchy.store import dashboard_rows, in_progress_count, log_event
+from jobhelper.agents.application_worker import ApplicationWorker
+from jobhelper.agents.search_worker import SearchWorker
+from jobhelper.config import load_resume, settings
+from jobhelper.db import SessionLocal
+from jobhelper.llm import LLMError, generate
+from jobhelper.models import Application, ChatMessage, Job
+from jobhelper.store import dashboard_rows, in_progress_count, log_event
 
 
 class ManagerAgent:

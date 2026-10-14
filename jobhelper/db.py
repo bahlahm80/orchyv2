@@ -3,8 +3,8 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from orchy.config import ROOT, settings
-from orchy.models import Base
+from jobhelper.config import ROOT, settings
+from jobhelper.models import Base
 
 Path(ROOT / "data").mkdir(parents=True, exist_ok=True)
 

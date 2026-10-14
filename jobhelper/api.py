@@ -8,11 +8,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from orchy.agents.manager import ManagerAgent
-from orchy.config import ROOT, settings
-from orchy.db import SessionLocal, init_db
-from orchy.models import Application
-from orchy.store import chat_history, dashboard_rows, in_progress_count, recent_events, touch
+from jobhelper.agents.manager import ManagerAgent
+from jobhelper.config import ROOT, settings
+from jobhelper.db import SessionLocal, init_db
+from jobhelper.models import Application
+from jobhelper.store import chat_history, dashboard_rows, in_progress_count, recent_events, touch
 
 manager = ManagerAgent()
 WEB = ROOT / "web"

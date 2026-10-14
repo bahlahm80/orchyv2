@@ -40,7 +40,7 @@ Architected & Launched Orchy v1.0: Designed and deployed an internal Slack-based
 tool built in Kotlin/springboot framework to automate developer workflows using
 rule-based AI routing framewrok, reduce environment verification times and reduce test
 failure triage times. Integrated cost-effective Valkey Serverless (AWS Redis) for efficient
-session and state management for Orchy.
+session and state management for jobhelper.
 Orchy v2.0 Architecture & Advanced AI Integration: Following the adoption of Orchy
 v1.0 (~20 active users), spearheaded the migration to Python and LangGraph to build
 fully autonomous, LLM-based multi-turn agents designed for plug-and-play adaptability

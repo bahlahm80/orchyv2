@@ -5,7 +5,7 @@ import re
 import httpx
 from bs4 import BeautifulSoup
 
-from orchy.sources.base import JobPosting
+from jobhelper.sources.base import JobPosting
 
 GUEST_SEARCH = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 
