@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orchy — Job desk</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <p class="eyebrow">Orchy v2 · local agent desk</p>
+        <h1>Job applications</h1>
+      </div>
+      <dl class="meters" id="meters"></dl>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Pipeline</h2>
+          <button id="searchNow" type="button">Search now</button>
+        </div>
+        <div id="jobs" class="jobs"></div>
+      </section>
+
+      <aside class="side">
+        <section class="panel chat-panel">
+          <h2>Talk to the manager</h2>
+          <div id="chatLog" class="chat-log"></div>
+          <form id="chatForm">
+            <input id="chatInput" autocomplete="off" placeholder="Ask about matching, status, or next steps" />
+            <button type="submit">Send</button>
+          </form>
+        </section>
+        <section class="panel">
+          <h2>Agent log</h2>
+          <ol id="events" class="events"></ol>
+        </section>
+      </aside>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

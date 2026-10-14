@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "orchy-jobs": {
+      "command": "python",
+      "args": ["-m", "orchy.mcp_server"]
+    }
+  }
+}
