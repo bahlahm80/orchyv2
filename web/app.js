@@ -12,20 +12,33 @@ function meter(label, value) {
 
 function jobCard(row) {
   const canDecide = row.status === "pending_approval" && row.application_id;
+  
+  // Resolve link: use row.url first, or construct from external_id / id
+  const targetUrl = row.url || (row.external_id ? `https://www.linkedin.com/jobs/view/${row.external_id}` : null);
+  
+  const openListingLink = targetUrl 
+    ? `<a class="chip ghost" href="${targetUrl}" target="_blank" rel="noreferrer">Open listing</a>` 
+    : "";
+
+  const scoreVal = Number(row.score ?? row.match_score ?? 0).toFixed(2);
+
   const actions = canDecide
     ? `<div class="actions">
-         <span class="status">${row.status}</span>
+         <span class="status">${escapeHtml(row.status)}</span>
+         ${openListingLink}
          <button data-approve="${row.application_id}">Approve apply</button>
          <button class="danger" data-reject="${row.application_id}">Disapprove</button>
        </div>`
-    : `<div class="actions"><span class="status">${row.status}</span>
-         ${row.url ? `<a class="chip ghost" href="${row.url}" target="_blank" rel="noreferrer">Open listing</a>` : ""}
+    : `<div class="actions">
+         <span class="status">${escapeHtml(row.status)}</span>
+         ${openListingLink}
        </div>`;
+
   return `<article class="job">
     <div>
       <h3>${escapeHtml(row.title)}</h3>
-      <p class="meta">${escapeHtml(row.company)} · ${escapeHtml(row.location)} · score ${Number(row.match_score).toFixed(2)}</p>
-      <p class="reason">${escapeHtml(row.match_reason || "")}</p>
+      <p class="meta">${escapeHtml(row.company)} · ${escapeHtml(row.location)} · score ${scoreVal}</p>
+      <p class="reason">${escapeHtml(row.match_reason || row.reason || "")}</p>
     </div>
     ${actions}
   </article>`;

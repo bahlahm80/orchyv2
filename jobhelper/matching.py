@@ -101,9 +101,8 @@ Description: {description[:4000]}
         matched = bool(data.get("matched", score >= threshold)) and score >= threshold
         return MatchResult(score=score, matched=matched, reason=reason)
     except (LLMError, ValueError, TypeError) as exc:
-        matched = baseline.score >= threshold
         return MatchResult(
             score=baseline.score,
-            matched=matched,
+            matched=False,
             reason=f"{baseline.reason} LLM fallback ({exc}).",
         )

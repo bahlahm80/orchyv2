@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 import httpx
+import asyncio
 
 from jobhelper.config import settings
 
@@ -42,6 +43,7 @@ async def generate(
     *,
     system: str | None = None,
     json_mode: bool = False,
+    max_retries: int = 3,
 ) -> str:
     if not settings.gemini_api_key:
         raise LLMError(
@@ -61,18 +63,32 @@ async def generate(
         body["systemInstruction"] = {"parts": [{"text": system}]}
 
     url = GEMINI_URL.format(model=settings.gemini_model)
+
+    delay = 5.0 # Initial retry delay for rate limits
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            url,
-            headers={
-                "x-goog-api-key": settings.gemini_api_key,
-                "Content-Type": "application/json",
-            },
-            json=body,
-        )
-    if response.status_code >= 400:
-        raise LLMError(f"Gemini HTTP {response.status_code}: {response.text[:800]}")
-    return _extract_text(response.json())
+        for attempt in range(max_retries + 1):
+            response = await client.post(
+                url,
+                headers={
+                    "x-goog-api-key": settings.gemini_api_key,
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+        
+            if response.status_code in (429, 503) and attempt < max_retries:
+                await asyncio.sleep(delay)
+                delay *= 2
+                continue
+
+            if response.status_code >= 400:
+                if response.status_code == 429:
+                    raise LLMError("Gemini rate limit exceeded (Free tier quota).  Please wait a moment before trying again.")
+                if response.status_code == 503:
+                    raise LLMError("Gemini servers are experiencing high demand.  Please try again after a few minutes.")
+                raise LLMError(f"Gemini HTTP {response.status_code}: {response.text[:800]}")
+        return _extract_text(response.json())
+    raise LLMError("Gemini request failed after maximum retry attempts")
 
 
 async def generate_json(prompt: str, *, system: str | None = None) -> dict[str, Any]:

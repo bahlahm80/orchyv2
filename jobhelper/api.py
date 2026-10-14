@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -35,6 +36,14 @@ def create_app() -> FastAPI:
         await manager.stop()
 
     app = FastAPI(title="Orchy v2", version="0.1.0", lifespan=lifespan)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.get("/api/health")
     async def health() -> dict:
@@ -98,6 +107,28 @@ def create_app() -> FastAPI:
             await session.commit()
             return {"id": app_row.id, "status": app_row.status}
 
+    @app.get("/api/ingest")
+    @app.post("/api/ingest")
+    async def ingest_job(url: str = None, body: ChatIn = None) -> dict:
+        """Receives a LinkedIn job URL from query param (GET) or body (POST), fetches, scores, and saves it."""
+        target_url = url or (body.message.strip() if body else None)
+        
+        if not target_url:
+            raise HTTPException(400, "Missing job URL parameter.")
+        
+        try:
+            result = await manager.search.ingest_url(target_url)
+            return {
+                "status": "success",
+                "title": result.get("title"),
+                "company": result.get("company"),
+                "score": result.get("score"),
+                "matched": result.get("matched"),
+                "message": "Job successfully ingested and evaluated!"
+            }
+        except Exception as exc:
+            raise HTTPException(400, f"Failed to ingest job: {str(exc)}") from exc
+    
     @app.post("/api/search/now")
     async def search_now() -> dict:
         return await manager.search.run_once()

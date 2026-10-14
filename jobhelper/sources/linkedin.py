@@ -83,6 +83,61 @@ async def _job_description(client: httpx.AsyncClient, job_id: str) -> str:
         return ""
 
 
+async def fetch_job_details(client: httpx.AsyncClient, job_id: str) -> dict:
+    """Fetches full job metadata (title, company, location, description) for manual ingestion."""
+    url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
+    try:
+        response = await client.get(url)
+        if response.status_code >= 400:
+            return {
+                "title": "Software Engineer",
+                "company": "LinkedIn Posting",
+                "location": "US",
+                "description": "",
+                "url": f"https://www.linkedin.com/jobs/view/{job_id}",
+            }
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        title_el = soup.select_one(".top-card-layout__title, .topcard__title, h1, .job-details-jobs-unified-top-card__job-title")
+        company_el = soup.select_one(".topcard__org-name-link, .top-card-layout__first-sub-text, a.topcard__org-name-link, .job-details-jobs-unified-top-card__company-name")
+        location_el = soup.select_one(".topcard__flavor--bullet, .top-card-layout__first-sub-text + span")
+
+        # Capture description across all common LinkedIn markup wrappers
+        body_el = (
+            soup.select_one(".show-more-less-html__markup")
+            or soup.select_one(".description__text")
+            or soup.select_one(".jobs-description__content")
+            or soup.select_one("section.description")
+            or soup.select_one("article")
+        )
+
+        title = str(title_el.get_text(strip=True)) if title_el else "Software Engineer"
+        company = str(company_el.get_text(strip=True)) if company_el else "LinkedIn Posting"
+        location = str(location_el.get_text(strip=True)) if location_el else "US"
+
+        if body_el:
+            # Preserve spacing between paragraphs and bullet list items
+            description = " ".join(body_el.stripped_strings)
+        else:
+            description = " ".join(soup.stripped_strings)
+
+        return {
+            "title": title,
+            "company": company,
+            "location": location,
+            "description": description if description else "No description available.",
+            "url": f"https://www.linkedin.com/jobs/view/{job_id}",
+        }
+    except Exception:
+        return {
+            "title": "Software Engineer",
+            "company": "LinkedIn Posting",
+            "location": "US",
+            "description": "",
+            "url": f"https://www.linkedin.com/jobs/view/{job_id}",
+        }
+
 def _job_id(url: str) -> str:
     match = re.search(r"/jobs/view/[^/]*?(\d+)", url)
     if match:

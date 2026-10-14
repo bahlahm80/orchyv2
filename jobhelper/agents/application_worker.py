@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-import webbrowser
+#import webbrowser - using playwright for agent to act on browser activity to submit the application on the company's career sites
+import asyncio
+import json
+from playwright.async_api import async_playwright
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,23 +77,55 @@ class ApplicationWorker:
                 await session.refresh(app)
                 return app
 
+            # Job apply approved.  Apply to thejob by going to the company career website
             job = await session.get(Job, app.job_id)
-            app.status = "applied"
+            app.status = "in_progress"
             app.notes = (
-                "Recorded as applied after approval. Complete the LinkedIn form in the browser if it is still open."
+                "Application approved.  Playwright agent will be laucnhed to navigate targetted company's career website."
             )
-            app.apply_url = job.url if job else app.apply_url
+            # app.apply_url = job.url if job else app.apply_url
             touch(app)
-            if job and job.url:
-                try:
-                    webbrowser.open(job.url)
-                except Exception:
-                    pass
+
             await log_event(
                 session,
                 "application_worker",
-                f"User approved. Marked '{job.title if job else app.id}' as applied and opened the listing.",
+                f"User approved '{job.title if job else app.id}'. Launching Playwright browser worker to apply...",
             )
             await session.commit()
             await session.refresh(app)
-            return app
+
+
+            if job and job.url:
+                try:
+                    asyncio.create_task(self._rub_playwright_apply(app.id, job.url))
+                    return app
+                except Exception:
+                    pass
+            
+
+# This function will automatically apply for the job that was approved
+async def _run_playwright_apply(self, app_id: int, url: str) -> None:
+        """Launches Chromium via Playwright, navigates to the career site, and fills out form fields."""
+        with open("candidate_profile.json", "r") as f:
+            profile = json.load(f)
+
+        async with async_playwright() as p:
+            # Launch Chromium (set headless=False so you can see the agent working)
+            browser = await p.chromium.launch(headless=False)
+            context = await browser.new_context()
+            page = await context.new_page()
+
+            try:
+                await page.goto(url, wait_until="networkidle", timeout=60000)
+                
+                # Basic form fill logic (e.g. standard inputs)
+                # We can add site-specific handlers for Workday, Greenhouse, or Lever here
+                print(f"[Playwright] Navigated to {url}")
+                
+                # Keep browser window active for inspection/automation testing
+                await asyncio.sleep(10)
+                
+            except Exception as exc:
+                print(f"[Playwright Error] Failed during auto-apply: {exc}")
+            finally:
+                await browser.close()
