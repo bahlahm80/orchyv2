@@ -9,3 +9,4 @@ data/*.db
 data/*.db-journal
 .DS_Store
 web/node_modules/
+candidate_profile.json
