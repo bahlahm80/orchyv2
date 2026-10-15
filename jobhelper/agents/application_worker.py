@@ -3,7 +3,10 @@ from __future__ import annotations
 #import webbrowser - using playwright for agent to act on browser activity to submit the application on the company's career sites
 import asyncio
 import json
-from playwright.async_api import async_playwright
+import logging
+from playwright.async_api import async_playwright, Page, TimeoutError as PlaywrightTimeoutError
+from pathlib import pathlib
+from typing import Dict, Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +22,7 @@ from jobhelper.store import (
     touch,
 )
 
+logger = logging.getLogger("jobhelper.application_worker")
 
 class ApplicationWorker:
     """Surfaces matches for approval when fewer than MAX_IN_PROGRESS applications are active."""
@@ -96,35 +100,112 @@ class ApplicationWorker:
 
             if job and job.url:
                 try:
-                    asyncio.create_task(self._rub_playwright_apply(app.id, job.url))
-                    return app
-                except Exception:
-                    pass
+                    # Non-blocking background task execution
+                    asyncio.create_task(self._run_playwright_apply(app.id, job.url))
+                except Exception as exc:
+                    logger.error(f"Failed to spawn Playwright task: {exc}")
+
+            return app
             
 
 # This function will automatically apply for the job that was approved
 async def _run_playwright_apply(self, app_id: int, url: str) -> None:
-        """Launches Chromium via Playwright, navigates to the career site, and fills out form fields."""
-        with open("candidate_profile.json", "r") as f:
-            profile = json.load(f)
+        """Launches Chromium via Playwright, navigates to career site, and executes ATS-specific automation."""
+        profile_path = Path("data/candidate_profile.json")
+        if not profile_path.exists():
+            # Fallback check for root directory profile path
+            profile_path = Path("candidate_profile.json")
+
+        profile = {}
+        if profile_path.exists():
+            with open(profile_path, "r", encoding="utf-8") as f:
+                profile = json.load(f)
+        else:
+            logger.warning(f"[Playwright App #{app_id}] Profile file not found. Proceeding with empty profile.")
 
         async with async_playwright() as p:
-            # Launch Chromium (set headless=False so you can see the agent working)
-            browser = await p.chromium.launch(headless=False)
+            # Launch Chromium in headful mode so you can watch the agent run live
+            browser = await p.chromium.launch(headless=False, slow_mo=50)
             context = await browser.new_context()
             page = await context.new_page()
 
             try:
-                await page.goto(url, wait_until="networkidle", timeout=60000)
-                
-                # Basic form fill logic (e.g. standard inputs)
-                # We can add site-specific handlers for Workday, Greenhouse, or Lever here
-                print(f"[Playwright] Navigated to {url}")
-                
-                # Keep browser window active for inspection/automation testing
-                await asyncio.sleep(10)
-                
+                logger.info(f"[Playwright App #{app_id}] Navigating to {url}")
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await page.wait_for_timeout(2000)
+
+                # Route dynamically based on URL pattern or DOM indicators
+                if "workday" in url.lower() or await page.locator("[data-automation-id]").count() > 0:
+                    await self._handle_workday_apply(page, profile)
+                elif "greenhouse.io" in url.lower() or await page.locator("#greenhouse-application-form").count() > 0:
+                    await self._handle_greenhouse_apply(page, profile)
+                else:
+                    await self._handle_generic_apply(page, profile)
+
+                logger.info(f"[Playwright App #{app_id}] Completed automation sequence for {url}")
+                await asyncio.sleep(5)  # Keep window open briefly for inspection
+
+            except PlaywrightTimeoutError:
+                logger.error(f"[Playwright App #{app_id}] Timeout navigating to {url}")
             except Exception as exc:
-                print(f"[Playwright Error] Failed during auto-apply: {exc}")
+                logger.error(f"[Playwright Error App #{app_id}] Failed during auto-apply: {exc}", exc_info=True)
             finally:
                 await browser.close()
+
+      async def _handle_greenhouse_apply(self, page: Page, profile: Dict[str, Any]) -> None:
+        """Fills out standard Greenhouse application forms."""
+        logger.info("[Playwright] Executing Greenhouse ATS handler...")
+        
+        # Candidate basic info
+        if await page.locator("input#first_name").is_visible():
+            await page.fill("input#first_name", profile.get("first_name", ""))
+            await page.fill("input#last_name", profile.get("last_name", ""))
+            await page.fill("input#email", profile.get("email", ""))
+            await page.fill("input#phone", profile.get("phone", ""))
+
+        # Upload Resume
+        resume_input = page.locator("input[type='file'][autocomplete='off'], input[type='file']#resume_upload")
+        resume_path = profile.get("resume_pdf_path", "data/resume.pdf")
+        if await resume_input.count() > 0 and Path(resume_path).exists():
+            await resume_input.first.set_input_files(resume_path)
+            logger.info(f"[Playwright] Attached resume from {resume_path}")
+
+        # Social Links
+        if await page.locator("input[autocomplete='custom-question-linkedin-profile']").is_visible():
+            await page.fill("input[autocomplete='custom-question-linkedin-profile']", profile.get("linkedin_url", ""))
+
+    async def _handle_workday_apply(self, page: Page, profile: Dict[str, Any]) -> None:
+        """Handles Workday multi-step application entry points."""
+        logger.info("[Playwright] Executing Workday ATS handler...")
+        
+        apply_btn = page.locator("[data-automation-id='applyButton']")
+        if await apply_btn.is_visible():
+            await apply_btn.click()
+            await page.wait_for_timeout(2000)
+
+        manual_apply = page.locator("[data-automation-id='applyManually']")
+        if await manual_apply.is_visible():
+            await manual_apply.click()
+            await page.wait_for_timeout(2000)
+
+        resume_input = page.locator("[data-automation-id='file-upload-drop-zone'] input[type='file']")
+        resume_path = profile.get("resume_pdf_path", "data/resume.pdf")
+        if await resume_input.count() > 0 and Path(resume_path).exists():
+            await resume_input.set_input_files(resume_path)
+            logger.info(f"[Playwright] Uploaded resume to Workday: {resume_path}")
+
+    async def _handle_generic_apply(self, page: Page, profile: Dict[str, Any]) -> None:
+        """Generic fallback for standard input names."""
+        logger.info("[Playwright] Executing generic form filler...")
+        field_mappings = [
+            ("input[name*='first' i], input[id*='first' i]", profile.get("first_name")),
+            ("input[name*='last' i], input[id*='last' i]", profile.get("last_name")),
+            ("input[type='email'], input[name*='email' i]", profile.get("email")),
+            ("input[type='tel'], input[name*='phone' i]", profile.get("phone")),
+        ]
+        for selector, val in field_mappings:
+            if val and await page.locator(selector).count() > 0:
+                try:
+                    await page.locator(selector).first.fill(val)
+                except Exception:
+                    pass          
