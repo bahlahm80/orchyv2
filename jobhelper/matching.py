@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from jobhelper.llm import LLMError, generate_json
+from jobhelper.llm import LLMError, generate_decision_with_fallback
 
 STOPWORDS = {
     "and",
@@ -88,7 +88,7 @@ Location: {location}
 Description: {description[:4000]}
 """
     try:
-        data = await generate_json(
+        data = await generate_decision_with_fallback(
             prompt,
             system="You are a strict job-matching reviewer. Be conservative.",
         )

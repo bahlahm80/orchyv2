@@ -1,47 +1,66 @@
 from __future__ import annotations
 
 import httpx
+import asyncio
+import logging
 
+from sqlalchemy import select
 from jobhelper.config import load_resume, settings
 from jobhelper.db import SessionLocal
 from jobhelper.matching import score_job
+from jobhelper.models import Job
 from jobhelper.sources.linkedin import LinkedInJobSource
 from jobhelper.sources.sample import SampleJobSource
 from jobhelper.store import log_event, upsert_job
 
+logger = logging.getLogger("jobhelper.agents.search_worker")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s")
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
 
 class SearchWorker:
-    """Continuously searches LinkedIn (or sample listings) and scores against the resume."""
+    """Continuously searches job sources and scores against the resume."""
 
     def __init__(self) -> None:
         self._last_error = ""
+        self._backoff_seconds = 60  # Initial backoff on 429
 
     async def run_once(self) -> dict:
         resume = load_resume()
         postings, source_name = await self._fetch()
+        
+        if not postings:
+            logger.warning("[Search Worker] No postings fetched from source.")
+            return {"source": source_name, "scanned": 0, "matched": 0}
+
+        # Reset backoff on successful fetch
+        self._backoff_seconds = 60
+
         matched = 0
         stored = 0
+        BATCH_SIZE = 5
+        BATCH_DELAY_SECONDS = 600  
+
+        # Fetch existing IDs once upfront
         async with SessionLocal() as session:
-            # Adding logic to make sure duplicate or already seen or applied jobs don't show up on the list
             existing_result = await session.execute(select(Job.external_id))
             existing_ids = {row[0] for row in existing_result.all() if row[0]}
 
-            # Only post new listings
-            new_postings = [p for p in postings if p.external_id not in existing_ids]
-            total_new = len(new_postings)
+        new_postings = [p for p in postings if p.external_id not in existing_ids]
+        total_new = len(new_postings)
+        total_batches = (total_new + BATCH_SIZE - 1) // BATCH_SIZE
 
-            # Batch configuration - because I'm using free version, gemini api has limit on the usage
-            # So we will need to run the match analysis via LLM on certain number of postings
-            # We will start with 5 postings at once and repeat every 5 minutes.
-            BATCH_SIZE = 5
-            BATCH_DELAY_SECONDS = 300
-            total_batches = (total_new + BATCH_SIZE - 1) // BATCH_SIZE
+        for batch_num, i in enumerate(range(0, total_new, BATCH_SIZE), start=1):
+            batch = new_postings[i : i + BATCH_SIZE]
+            batch_stored = 0
+            batch_matched = 0
 
-            for batch_num, i in enumerate(range(0, total_new, BATCH_SIZE), start = 1):
-                batch = new_postings[i : i + BATCH_SIZE]
-                batch_stored = 0
-                batch_matched = 0
-
+            # Open a short-lived session strictly for this batch
+            async with SessionLocal() as session:
                 for posting in batch:
                     if posting.external_id in existing_ids:
                         continue
@@ -54,7 +73,7 @@ class SearchWorker:
                         description=posting.description or posting.title,
                         threshold=settings.match_threshold,
                     )
-                    # skip anything lower than threshold but in the beginning we will start with high threshold just to make sure
+                    
                     if result.score < settings.match_threshold:
                         existing_ids.add(posting.external_id)
                         continue
@@ -75,10 +94,11 @@ class SearchWorker:
                 )
                 await session.commit()
 
-                # If there are still more jobs left to process, pause to reset Gemini
-                if i + BATCH_SIZE < total_new:
-                    print(f"[Search Worker] Batch complete.  Sleeping {BATCH_DELAY_SECONDS}s to refresh Gemini API quota...")
-                    await asyncio.sleep(BATCH_DELAY_SECONDS)
+            # Sleep OUTSIDE the database session block
+            if i + BATCH_SIZE < total_new:
+                print(f"[Search Worker] Batch complete. Sleeping {BATCH_DELAY_SECONDS}s to refresh Gemini API quota...")
+                await asyncio.sleep(BATCH_DELAY_SECONDS)
+
         return {"source": source_name, "scanned": stored, "matched": matched}
 
     async def _fetch(self):
@@ -91,14 +111,28 @@ class SearchWorker:
             )
             if jobs:
                 return jobs, "linkedin"
-            if mode == "linkedin":
-                return [], "linkedin"
-        except Exception as exc:  # LinkedIn guest HTML is brittle; But keeping samples off.  If want to test, change the mode in .env to sample
-            self._last_error = str(exc)
             return [], "linkedin"
-        return jobs, "linkedin"
+
+        except httpx.HTTPStatusError as exc:
+            self._last_error = str(exc)
+            if exc.response.status_code == 429:
+                logger.warning(
+                    f"[Search Worker] LinkedIn 429 Rate Limit hit. Backing off for {self._backoff_seconds}s..."
+                )
+                await asyncio.sleep(self._backoff_seconds)
+                # Exponential backoff capped at 30 minutes (1800s)
+                self._backoff_seconds = min(self._backoff_seconds * 2, 1800)
+            else:
+                logger.error(f"[Search Worker] HTTP Error during fetch: {exc}")
+            return [], "linkedin"
+
+        except Exception as exc:
+            self._last_error = str(exc)
+            logger.error(f"[Search Worker] Fetch failed: {exc}")
+            return [], "linkedin"
 
     async def ingest_url(self, url: str) -> dict:
+        logger.info("Manually fetch, score, and store a single job posting by URL.")
         """Manually fetch, score, and store a single job posting by URL."""
         resume = load_resume()
         
@@ -110,8 +144,7 @@ class SearchWorker:
         if not job_id:
             raise ValueError("Could not parse a valid LinkedIn job ID from URL.")
 
-        # 1. Fetch metadata via httpx
-        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) JobHelper/0.1"}
+        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"}
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers) as client:
             details = await fetch_job_details(client, job_id)
 
@@ -125,7 +158,6 @@ class SearchWorker:
             source="linkedin",
         )
 
-        # 2. Score job with Gemini
         result = await score_job(
             resume,
             title=posting.title,
@@ -144,10 +176,9 @@ class SearchWorker:
                 "reason": f"Filtered out: score {result.score:.2f} is below threshold {settings.match_threshold:.2f}.",
             }
 
-        # 3. Store in SQLite & create pending application if matched
         async with SessionLocal() as session:
             db_job = await upsert_job(session, posting, result.score, result.reason, result.matched)
-            
+            logger.info(f"Fetched result match: {result.matched}")
             if result.matched:
                 existing_app = (
                     await session.scalars(select(Application).where(Application.job_id == db_job.id))

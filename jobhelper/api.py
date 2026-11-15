@@ -131,7 +131,10 @@ def create_app() -> FastAPI:
     
     @app.post("/api/search/now")
     async def search_now() -> dict:
-        return await manager.search.run_once()
+        try:
+            return await manager.search.run_once()
+        except asyncio.CancelledError:
+            return {"status": "cancelled", "message": "Search operation was cancelled."}
 
     @app.post("/api/chat")
     async def chat(body: ChatIn) -> dict:

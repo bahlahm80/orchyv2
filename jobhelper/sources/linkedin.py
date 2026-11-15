@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import random
 import re
-
 import httpx
 from bs4 import BeautifulSoup
 
@@ -9,9 +10,12 @@ from jobhelper.sources.base import JobPosting
 
 GUEST_SEARCH = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 
+# Realistic Chrome browser User-Agent
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+
 
 class LinkedInJobSource:
-    """Public LinkedIn job cards (no login). Easy Apply is never automated."""
+    """Public LinkedIn job cards (no login)."""
 
     name = "linkedin"
 
@@ -22,22 +26,31 @@ class LinkedInJobSource:
         params: dict[str, str | int] = {
             "keywords": keywords,
             "location": location,
-            "f_TPR": "r86400",
+            "f_TPR": "r86400",  # Past 24h
             "start": 0,
         }
         if self.geo_id:
             params["geoId"] = self.geo_id
+
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Orchy/0.1",
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         }
+
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers) as client:
             response = await client.get(GUEST_SEARCH, params=params)
-            if response.status_code >= 400:
-                raise RuntimeError(f"LinkedIn guest search HTTP {response.status_code}")
+            
+            # Explicitly raise HTTPStatusError on 429 / 403
+            response.raise_for_status()
+
             jobs = _parse_cards(response.text)
-            for job in jobs[:8]:
+
+            # Limit detail requests & add jitter to prevent 429
+            for job in jobs[:5]:
+                await asyncio.sleep(random.uniform(1.5, 3.5))  # Random delay between card fetches
                 job.description = await _job_description(client, job.external_id)
+
         return jobs
 
 
@@ -84,7 +97,7 @@ async def _job_description(client: httpx.AsyncClient, job_id: str) -> str:
 
 
 async def fetch_job_details(client: httpx.AsyncClient, job_id: str) -> dict:
-    """Fetches full job metadata (title, company, location, description) for manual ingestion."""
+    """Fetches full job metadata for manual ingestion."""
     url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
     try:
         response = await client.get(url)
@@ -103,7 +116,6 @@ async def fetch_job_details(client: httpx.AsyncClient, job_id: str) -> dict:
         company_el = soup.select_one(".topcard__org-name-link, .top-card-layout__first-sub-text, a.topcard__org-name-link, .job-details-jobs-unified-top-card__company-name")
         location_el = soup.select_one(".topcard__flavor--bullet, .top-card-layout__first-sub-text + span")
 
-        # Capture description across all common LinkedIn markup wrappers
         body_el = (
             soup.select_one(".show-more-less-html__markup")
             or soup.select_one(".description__text")
@@ -117,7 +129,6 @@ async def fetch_job_details(client: httpx.AsyncClient, job_id: str) -> dict:
         location = str(location_el.get_text(strip=True)) if location_el else "US"
 
         if body_el:
-            # Preserve spacing between paragraphs and bullet list items
             description = " ".join(body_el.stripped_strings)
         else:
             description = " ".join(soup.stripped_strings)
@@ -137,6 +148,7 @@ async def fetch_job_details(client: httpx.AsyncClient, job_id: str) -> dict:
             "description": "",
             "url": f"https://www.linkedin.com/jobs/view/{job_id}",
         }
+
 
 def _job_id(url: str) -> str:
     match = re.search(r"/jobs/view/[^/]*?(\d+)", url)

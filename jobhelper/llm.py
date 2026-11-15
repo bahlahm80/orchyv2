@@ -77,9 +77,12 @@ async def generate(
             )
         
             if response.status_code in (429, 503) and attempt < max_retries:
-                await asyncio.sleep(delay)
-                delay *= 2
-                continue
+                try:
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                    continue
+                except asyncio.CancelledError:
+                    raise
 
             if response.status_code >= 400:
                 if response.status_code == 429:
@@ -94,3 +97,49 @@ async def generate(
 async def generate_json(prompt: str, *, system: str | None = None) -> dict[str, Any]:
     text = await generate(prompt, system=system, json_mode=True)
     return parse_json_object(text)
+
+async def generate_decision_with_fallback(prompt: str, *, system: str | None = None) -> dict[str, Any]:
+    """Tries Gemini first for step decisions; falls back to local Ollama (qwen2.5:7b) if Gemini fails."""
+    system_prompt = system or "You are an expert MCP agent controller. Output valid JSON only."
+    # 1. Try Gemini first
+    try:
+        decision = await generate_json(prompt, system=system_prompt)
+        if isinstance(decision, dict) and "tool" in decision:
+            return decision
+    except Exception as e:
+        logger.warning(f"[MCP Agent] Gemini step generation failed ({e}). Falling back to local Ollama...")
+
+    # 2. Fallback to Local Ollama (`qwen2.5:7b`)
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            payload = {
+                "model": "qwen2.5:7b",
+                "prompt": prompt + "\n\nCRITICAL INSTRUCTION: Respond ONLY with valid JSON containing keys 'thought', 'tool', and 'args'. No markdown backticks, no extra text.",
+                "stream": False,
+                "options": {"temperature": 0.1}
+            }
+            response = await client.post("http://localhost:11434/api/generate", json=payload)
+            if response.status_code == 200:
+                data = response.json()
+                raw_text = data.get("response", "").strip()
+                
+                # Clean markdown code blocks if the local model wraps them
+                if "```json" in raw_text:
+                    raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+                elif "```" in raw_text:
+                    raw_text = raw_text.split("```")[1].split("```")[0].strip()
+                
+                parsed = json.loads(raw_text)
+                if isinstance(parsed, dict):
+                    logger.info("[MCP Agent] Successfully recovered decision using local Ollama fallback.")
+                    return parsed
+    except Exception as local_err:
+        logger.error(f"[MCP Agent] Local Ollama fallback also failed: {local_err}")
+
+    # 3. Default safe fallback action if all LLMs are down
+    return {
+        "thought": "LLM providers experiencing high demand. Taking a fresh snapshot to retry.",
+        "tool": "browser_snapshot",
+        "args": {}
+    }
